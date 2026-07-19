@@ -8,14 +8,11 @@ export const images = {
   product: mediaUrl("media/images/frame-product.webp"),
 };
 
-export const journeyClips = [1, 2, 3].map((number) => {
-  const id = String(number).padStart(2, "0");
-  return {
-    desktop: mediaUrl(`media/video/journey-${id}.mp4`),
-    mobile: mediaUrl(`media/video-mobile/journey-${id}.mp4`),
-    poster: mediaUrl(`media/posters/journey-${id}.webp`),
-  };
-});
+export const journeyVideo = {
+  desktop: mediaUrl("media/video/journey-master.mp4"),
+  mobile: mediaUrl("media/video-mobile/journey-master.mp4"),
+  poster: mediaUrl("media/posters/journey-01.webp"),
+};
 
 export const journeyPhases = [
   { number: "01", label: "Origin", title: "Coffee, awakened by fire.", eyebrow: "The first spark" },

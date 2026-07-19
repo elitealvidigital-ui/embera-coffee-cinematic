@@ -3,11 +3,13 @@ import { ArrowDown } from "lucide-react";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { useGSAP } from "@gsap/react";
-import { images, journeyClips, journeyPhases } from "../media";
+import { images, journeyPhases, journeyVideo } from "../media";
 
 gsap.registerPlugin(ScrollTrigger, useGSAP);
 
-const phaseStops = [0, 0.2, 0.4, 0.66, 0.84];
+const phaseStops = [0, 0.2, 0.37, 0.66, 0.84];
+const masterFrameRate = 24;
+const firstTransitionProgress = 9.85 / 28.458333;
 
 function useMediaPreference(query) {
   const [matches, setMatches] = useState(() => window.matchMedia(query).matches);
@@ -25,7 +27,7 @@ function useMediaPreference(query) {
 export default function CinematicJourney() {
   const rootRef = useRef(null);
   const stageRef = useRef(null);
-  const videoRefs = useRef([]);
+  const videoRef = useRef(null);
   const phaseRefs = useRef([]);
   const trackerRefs = useRef([]);
   const progressRef = useRef(null);
@@ -36,13 +38,15 @@ export default function CinematicJourney() {
   useGSAP(() => {
     if (reducedMotion) return undefined;
 
-    const videos = videoRefs.current.filter(Boolean);
+    const video = videoRef.current;
     const phaseElements = phaseRefs.current.filter(Boolean);
     const trackerElements = trackerRefs.current.filter(Boolean);
     const playhead = { value: 0 };
     let frameRequest = 0;
     let pendingProgress = 0;
+    let lastFrame = -1;
 
+    activePhaseRef.current = -1;
     gsap.set(phaseElements, { autoAlpha: 0, y: 24 });
 
     const showPhase = (nextIndex) => {
@@ -72,59 +76,36 @@ export default function CinematicJourney() {
       activePhaseRef.current = nextIndex;
     };
 
-    const seekVideo = (video, localProgress) => {
-      if (!video || video.readyState < 1) return;
+    const seekVideo = (progress) => {
+      if (!video || video.readyState < HTMLMediaElement.HAVE_METADATA) return;
       const duration = Number.isFinite(video.duration) ? video.duration : 10;
-      const target = Math.min(Math.max(localProgress * (duration - 0.06), 0.01), duration - 0.06);
-      if (Math.abs(video.currentTime - target) > 0.035) video.currentTime = target;
-    };
-
-    const ensureVideo = (index) => {
-      const video = videos[index];
-      if (!video) return;
-      if (video.preload !== "auto") {
-        video.preload = "auto";
-        if (video.readyState === 0) video.load();
-      }
+      const finalFrame = Math.max(1, Math.floor((duration - 0.08) * masterFrameRate));
+      const nextFrame = Math.round(gsap.utils.clamp(0, 1, progress) * finalFrame);
+      if (nextFrame === lastFrame) return;
+      lastFrame = nextFrame;
+      const target = nextFrame / masterFrameRate;
+      if (Math.abs(video.currentTime - target) > 0.018) video.currentTime = target;
     };
 
     const renderProgress = (progress) => {
-      const scaled = Math.min(progress * videos.length, videos.length - 0.0001);
-      const clipIndex = Math.min(Math.floor(scaled), videos.length - 1);
-      const localProgress = progress >= 1 ? 1 : scaled - clipIndex;
-      const crossfadeStart = 0.965;
-
-      ensureVideo(clipIndex);
-      ensureVideo(Math.min(clipIndex + 1, videos.length - 1));
-      seekVideo(videos[clipIndex], localProgress);
-
-      videos.forEach((video) => {
-        video.style.opacity = "0";
-        video.style.visibility = "hidden";
-      });
-
-      const currentVideo = videos[clipIndex];
-      if (currentVideo) {
-        currentVideo.style.opacity = "1";
-        currentVideo.style.visibility = "visible";
-      }
-
-      if (clipIndex < videos.length - 1 && localProgress > crossfadeStart) {
-        const mix = (localProgress - crossfadeStart) / (1 - crossfadeStart);
-        const nextVideo = videos[clipIndex + 1];
-        seekVideo(nextVideo, 0);
-        currentVideo.style.opacity = String(1 - mix);
-        nextVideo.style.opacity = String(mix);
-        nextVideo.style.visibility = "visible";
-      }
+      const boundedProgress = gsap.utils.clamp(0, 1, progress);
+      seekVideo(boundedProgress);
 
       let phaseIndex = 0;
       phaseStops.forEach((stop, index) => {
-        if (progress >= stop) phaseIndex = index;
+        if (boundedProgress >= stop) phaseIndex = index;
       });
       showPhase(phaseIndex);
-      if (progressRef.current) progressRef.current.style.transform = `scaleY(${Math.max(progress, 0.015)})`;
-      rootRef.current?.style.setProperty("--journey-progress", progress.toFixed(4));
+      if (progressRef.current) progressRef.current.style.transform = `scaleY(${Math.max(boundedProgress, 0.015)})`;
+      if (rootRef.current) {
+        const flare = gsap.utils.clamp(
+          0,
+          1,
+          1 - Math.abs(boundedProgress - firstTransitionProgress) / 0.018,
+        );
+        rootRef.current.style.setProperty("--journey-progress", boundedProgress.toFixed(4));
+        rootRef.current.style.setProperty("--journey-flare", flare.toFixed(3));
+      }
     };
 
     const scheduleRender = (progress) => {
@@ -136,6 +117,13 @@ export default function CinematicJourney() {
       });
     };
 
+    const syncVideo = () => {
+      lastFrame = -1;
+      scheduleRender(pendingProgress);
+    };
+
+    video?.pause();
+    video?.addEventListener("loadedmetadata", syncVideo);
     renderProgress(0);
 
     const tween = gsap.to(playhead, {
@@ -146,8 +134,8 @@ export default function CinematicJourney() {
         id: "embera-cinematic-journey",
         trigger: rootRef.current,
         start: "top top",
-        end: () => `+=${window.innerHeight * (isMobile ? 3.4 : 5.25)}`,
-        scrub: isMobile ? 0.75 : 1.15,
+        end: () => `+=${window.innerHeight * (isMobile ? 3.2 : 4.6)}`,
+        scrub: isMobile ? 0.4 : 0.55,
         pin: stageRef.current,
         pinSpacing: true,
         anticipatePin: 1,
@@ -161,7 +149,9 @@ export default function CinematicJourney() {
     return () => {
       window.cancelAnimationFrame(frameRequest);
       window.removeEventListener("load", refresh);
+      video?.removeEventListener("loadedmetadata", syncVideo);
       tween.kill();
+      activePhaseRef.current = -1;
     };
   }, { scope: rootRef, dependencies: [isMobile, reducedMotion], revertOnUpdate: true });
 
@@ -176,21 +166,23 @@ export default function CinematicJourney() {
     >
       <div ref={stageRef} className="journey-stage">
         <img className="journey-fallback" src={activeImage} alt="EMBERA Forest Reserve coffee" />
-        {!reducedMotion && journeyClips.map((clip, index) => (
+        {!reducedMotion && (
           <video
-            key={clip.desktop}
-            ref={(element) => { videoRefs.current[index] = element; }}
+            key={isMobile ? journeyVideo.mobile : journeyVideo.desktop}
+            ref={videoRef}
             className="journey-video"
             muted
             playsInline
-            preload={index === 0 ? "auto" : index === 1 ? "metadata" : "none"}
-            poster={clip.poster}
+            preload="auto"
+            poster={journeyVideo.poster}
+            disablePictureInPicture
             aria-hidden="true"
           >
-            <source src={isMobile ? clip.mobile : clip.desktop} type="video/mp4" />
+            <source src={isMobile ? journeyVideo.mobile : journeyVideo.desktop} type="video/mp4" />
           </video>
-        ))}
+        )}
 
+        <div className="journey-transition-flare" aria-hidden="true" />
         <div className="journey-shade" aria-hidden="true" />
         <div className="journey-grain" aria-hidden="true" />
         <div className="particle-field" aria-hidden="true">
