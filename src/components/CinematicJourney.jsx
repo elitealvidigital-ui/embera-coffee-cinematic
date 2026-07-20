@@ -45,6 +45,8 @@ export default function CinematicJourney() {
     let frameRequest = 0;
     let pendingProgress = 0;
     let lastFrame = -1;
+    let isSeeking = false;
+    let queuedTime = null;
 
     activePhaseRef.current = -1;
     gsap.set(phaseElements, { autoAlpha: 0, y: 24 });
@@ -76,6 +78,18 @@ export default function CinematicJourney() {
       activePhaseRef.current = nextIndex;
     };
 
+    const seekToTime = (target) => {
+      if (!video || video.readyState < HTMLMediaElement.HAVE_METADATA) return;
+      if (isSeeking) {
+        queuedTime = target;
+        return;
+      }
+
+      if (Math.abs(video.currentTime - target) < 0.018) return;
+      isSeeking = true;
+      video.currentTime = target;
+    };
+
     const seekVideo = (progress) => {
       if (!video || video.readyState < HTMLMediaElement.HAVE_METADATA) return;
       const duration = Number.isFinite(video.duration) ? video.duration : 10;
@@ -84,7 +98,7 @@ export default function CinematicJourney() {
       if (nextFrame === lastFrame) return;
       lastFrame = nextFrame;
       const target = nextFrame / masterFrameRate;
-      if (Math.abs(video.currentTime - target) > 0.018) video.currentTime = target;
+      seekToTime(target);
     };
 
     const renderProgress = (progress) => {
@@ -119,11 +133,22 @@ export default function CinematicJourney() {
 
     const syncVideo = () => {
       lastFrame = -1;
+      isSeeking = false;
+      queuedTime = null;
       scheduleRender(pendingProgress);
+    };
+
+    const handleSeeked = () => {
+      isSeeking = false;
+      if (queuedTime === null) return;
+      const nextTarget = queuedTime;
+      queuedTime = null;
+      seekToTime(nextTarget);
     };
 
     video?.pause();
     video?.addEventListener("loadedmetadata", syncVideo);
+    video?.addEventListener("seeked", handleSeeked);
     renderProgress(0);
 
     const tween = gsap.to(playhead, {
@@ -150,6 +175,7 @@ export default function CinematicJourney() {
       window.cancelAnimationFrame(frameRequest);
       window.removeEventListener("load", refresh);
       video?.removeEventListener("loadedmetadata", syncVideo);
+      video?.removeEventListener("seeked", handleSeeked);
       tween.kill();
       activePhaseRef.current = -1;
     };
